@@ -1,90 +1,85 @@
 #!/bin/bash
-# La utilización de barras invertidas es para mejorar la legibilidad del script
 
-# Importación de variables de entorno recordatorio de que se tiene que generar el propio
-source .env.local
+# Configuración
+MOODLE_VERSION="stable401" # Versión de Moodle
+PRESTASHOP_VERSION="8.0.4" # Versión de PrestaShop
 
-# Actualización de paquetes del sistema
-sudo apt update && \
-sudo apt upgrade -y && \
-echo "" && \
-echo "Sistema actualizado correctamente"
-sleep 2  # Espera 2 segundos para que dé tiempo a leer los mensajes
+# Instalar dependencias comunes
+echo "=== Instalando dependencias ==="
+sudo apt-get update
+sudo apt-get install -y apache2 mysql-server php php-cli php-mysql php-zip php-xml php-mbstring php-curl php-soap php-intl unzip git
 
-# Instalación de Apache
-sudo apt install apache2 -y && \
-echo "" && \
-echo "Apache fue instalado correctamente"
-sleep 2
+# Configurar base de datos para Moodle
+echo "=== Configurando base de datos para Moodle ==="
+mysql -uroot <<MYSQL_SCRIPT
+CREATE DATABASE moodle DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'moodleuser'@'localhost' IDENTIFIED BY 'moodlepassword';
+GRANT ALL PRIVILEGES ON moodle.* TO 'moodleuser'@'localhost';
+FLUSH PRIVILEGES;
+MYSQL_SCRIPT
 
-# Cambiar la contraseña de root de MySQL utilizando nuestras variables de entorno
-mysql -u root -p"$ROOT_PASSWORD" <<EOF
-  ALTER USER 'root'@'localhost' IDENTIFIED WITH caching_sha2_password BY "$MYSQL_ROOT_PASSWORD";
-  FLUSH PRIVILEGES;
+# Instalar Moodle
+echo "=== Descargando e instalando Moodle ==="
+sudo git clone -b ${MOODLE_VERSION} git://git.moodle.org/moodle.git /var/www/html/moodle
+sudo mkdir -p /var/www/moodledata
+sudo chown -R www-data:www-data /var/www/html/moodle /var/www/moodledata
+sudo chmod -R 755 /var/www/html/moodle /var/www/moodledata
+
+# Configurar Apache para Moodle
+echo "=== Configurando Apache para Moodle ==="
+sudo tee /etc/apache2/sites-available/moodle.conf > /dev/null <<EOF
+<VirtualHost *:80>
+    ServerAdmin admin@example.com
+    DocumentRoot /var/www/html/moodle
+    <Directory /var/www/html/moodle>
+        Options FollowSymlinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+    ErrorLog \${APACHE_LOG_DIR}/moodle_error.log
+    CustomLog \${APACHE_LOG_DIR}/moodle_access.log combined
+</VirtualHost>
 EOF
 
-echo "" && \
-echo "La contraseña de root de MySQL fue cambiada con éxito"
-sleep 3
-
-# Instalación de PHP y sus módulos
-sudo apt install php libapache2-mod-php php-mysql php-xml php-intl php-zip php-curl -y && \
-echo "" && echo "PHP se instaló exitosamente"
-sudo cp ../php/info.php /var/www/html/info.php
-sudo chown www-data:www-data /var/www/html/info.php && echo "" && echo "Fichero copiado"
-sudo systemctl restart apache2 && echo "" && echo "Módulos cargados"
-
-# Configuración de MySQL para Moodle
-echo "" && echo "Configurando base de datos para Moodle..."
-mysql -u root -p"$MYSQL_ROOT_PASSWORD" <<EOF
-  CREATE DATABASE moodle DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-  CREATE USER '$MOODLE_DB_USER'@'localhost' IDENTIFIED BY '$MOODLE_DB_PASS';
-  GRANT ALL PRIVILEGES ON moodle.* TO '$MOODLE_DB_USER'@'localhost';
-  FLUSH PRIVILEGES;
-EOF
-echo "Base de datos para Moodle configurada correctamente."
-sleep 3
-
-# Crear el directorio moodledata y asignar permisos
-echo "" && echo "Creando directorio moodledata..."
-sudo mkdir -p /var/moodledata
-sudo chmod -R 0777 /var/moodledata
-sudo chown -R www-data:www-data /var/moodledata
-echo "Directorio moodledata creado correctamente."
-sleep 2
-
-# Instalación de Moodle
-echo "" && echo "Instalando Moodle..."
-MOODLE_URL="https://download.moodle.org/download.php/direct/stable402/moodle-latest-402.tgz"
-sudo wget -O moodle.tgz "$MOODLE_URL"
-sudo tar -xvzf moodle.tgz -C /var/www/html/
-sudo chown -R www-data:www-data /var/www/html/moodle
-
-# Configurar config.php automáticamente
-sudo cp /var/www/html/moodle/config-dist.php /var/www/html/moodle/config.php
-sudo sed -i "s|\$CFG->dataroot.*|\\\$CFG->dataroot = '/var/moodledata';|" /var/www/html/moodle/config.php
-sudo sed -i "s|'dbtype' => '.*'|'dbtype' => 'mysqli'|" /var/www/html/moodle/config.php
-sudo sed -i "s|'dbname' => '.*'|'dbname' => 'moodle'|" /var/www/html/moodle/config.php
-sudo sed -i "s|'dbuser' => '.*'|'dbuser' => '$MOODLE_DB_USER'|" /var/www/html/moodle/config.php
-sudo sed -i "s|'dbpass' => '.*'|'dbpass' => '$MOODLE_DB_PASS'|" /var/www/html/moodle/config.php
-echo "Moodle instalado y configurado correctamente."
-sleep 3
-
-# Instalación de Prestashop
-echo "" && echo "Instalando Prestashop..."
-PRESTASHOP_URL="https://download.prestashop.com/download/releases/prestashop_1.7.8.8.zip"
-sudo wget -O prestashop.zip "$PRESTASHOP_URL"
-sudo apt install php-soap php-mbstring php-gd php-bcmath -y
-sudo unzip prestashop.zip -d /var/www/html/prestashop
-sudo chown -R www-data:www-data /var/www/html/prestashop
+sudo a2ensite moodle.conf
 sudo a2enmod rewrite
 sudo systemctl restart apache2
-echo "Prestashop instalado correctamente."
-sleep 3
 
-# Limpieza de archivos temporales
-echo "Limpiando archivos temporales..."
-rm moodle.tgz prestashop.zip
-echo "Archivos temporales eliminados."
+# Configurar base de datos para PrestaShop
+echo "=== Configurando base de datos para PrestaShop ==="
+mysql -uroot <<MYSQL_SCRIPT
+CREATE DATABASE prestashop DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'prestashopuser'@'localhost' IDENTIFIED BY 'prestashoppassword';
+GRANT ALL PRIVILEGES ON prestashop.* TO 'prestashopuser'@'localhost';
+FLUSH PRIVILEGES;
+MYSQL_SCRIPT
 
-echo "" && echo "Instalación completada"
+# Instalar PrestaShop
+echo "=== Descargando e instalando PrestaShop ==="
+sudo mkdir -p /var/www/html/prestashop
+sudo wget https://download.prestashop.com/download/releases/prestashop_${PRESTASHOP_VERSION}.zip -O /tmp/prestashop.zip
+sudo unzip /tmp/prestashop.zip -d /var/www/html/prestashop
+sudo rm /tmp/prestashop.zip
+sudo chown -R www-data:www-data /var/www/html/prestashop
+sudo chmod -R 755 /var/www/html/prestashop
+
+# Configurar Apache para PrestaShop
+echo "=== Configurando Apache para PrestaShop ==="
+sudo tee /etc/apache2/sites-available/prestashop.conf > /dev/null <<EOF
+<VirtualHost *:80>
+    ServerAdmin admin@example.com
+    DocumentRoot /var/www/html/prestashop
+    <Directory /var/www/html/prestashop>
+        Options FollowSymlinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+    ErrorLog \${APACHE_LOG_DIR}/prestashop_error.log
+    CustomLog \${APACHE_LOG_DIR}/prestashop_access.log combined
+</VirtualHost>
+EOF
+
+sudo a2ensite prestashop.conf
+sudo systemctl restart apache2
+
+echo "=== Instalación completa ==="
