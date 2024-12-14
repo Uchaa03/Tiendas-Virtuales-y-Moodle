@@ -9,7 +9,7 @@ sudo apt update && \
 sudo apt upgrade -y && \
 echo "" && \
 echo "Sistema actualizado correctamente"
-sleep 2  # Espera 2 segundos para que dé tiempo a leer los echo
+sleep 2  # Espera 2 segundos para que dé tiempo a leer los mensajes
 
 # Instalación de Apache
 sudo apt install apache2 -y && \
@@ -45,20 +45,29 @@ EOF
 echo "Base de datos para Moodle configurada correctamente."
 sleep 3
 
+# Crear el directorio moodledata y asignar permisos
+echo "" && echo "Creando directorio moodledata..."
+sudo mkdir -p /var/moodledata
+sudo chmod -R 0777 /var/moodledata
+sudo chown -R www-data:www-data /var/moodledata
+echo "Directorio moodledata creado correctamente."
+sleep 2
+
 # Instalación de Moodle
 echo "" && echo "Instalando Moodle..."
 MOODLE_URL="https://download.moodle.org/download.php/direct/stable402/moodle-latest-402.tgz"
 sudo wget -O moodle.tgz "$MOODLE_URL"
 sudo tar -xvzf moodle.tgz -C /var/www/html/
-sudo mkdir /var/www/html/moodledata
-sudo chmod -R 0777 /var/www/html/moodledata
-sudo chown -R www-data:www-data /var/www/html/moodle /var/www/html/moodledata
+sudo chown -R www-data:www-data /var/www/html/moodle
+
+# Configurar config.php automáticamente
 sudo cp /var/www/html/moodle/config-dist.php /var/www/html/moodle/config.php
-sudo sed -i "s/'dbname' => 'moodle'/'dbname' => 'moodle'/" /var/www/html/moodle/config.php
-sudo sed -i "s/'dbuser' => 'username'/'dbuser' => '$MOODLE_DB_USER'/" /var/www/html/moodle/config.php
-sudo sed -i "s/'dbpass' => 'password'/'dbpass' => '$MOODLE_DB_PASS'/" /var/www/html/moodle/config.php
-sudo sed -i "s/'dataroot' => ''/'dataroot' => '\/var\/www\/html\/moodledata'/" /var/www/html/moodle/config.php
-echo "Moodle instalado correctamente."
+sudo sed -i "s|\$CFG->dataroot.*|\\\$CFG->dataroot = '/var/moodledata';|" /var/www/html/moodle/config.php
+sudo sed -i "s|'dbtype' => '.*'|'dbtype' => 'mysqli'|" /var/www/html/moodle/config.php
+sudo sed -i "s|'dbname' => '.*'|'dbname' => 'moodle'|" /var/www/html/moodle/config.php
+sudo sed -i "s|'dbuser' => '.*'|'dbuser' => '$MOODLE_DB_USER'|" /var/www/html/moodle/config.php
+sudo sed -i "s|'dbpass' => '.*'|'dbpass' => '$MOODLE_DB_PASS'|" /var/www/html/moodle/config.php
+echo "Moodle instalado y configurado correctamente."
 sleep 3
 
 # Instalación de Prestashop
@@ -78,6 +87,4 @@ echo "Limpiando archivos temporales..."
 rm moodle.tgz prestashop.zip
 echo "Archivos temporales eliminados."
 
-echo "" && echo "Instalación completada. Accede a:"
-echo " - Moodle: http://192.168.1.38>/moodle"
-echo " - Prestashop: http://192.168.1.38/prestashop"
+echo "" && echo "Instalación completada"
